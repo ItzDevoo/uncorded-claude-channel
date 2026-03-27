@@ -48,7 +48,8 @@ export async function loadConfig(): Promise<Config> {
       ownerId: vars.UNCORDED_OWNER_ID || null,
       apiUrl: vars.UNCORDED_API_URL || defaults.apiUrl,
     };
-  } catch {
+  } catch (err) {
+    console.error("[uncorded] Failed to load config:", err);
     return defaults;
   }
 }
@@ -64,8 +65,9 @@ export async function saveConfig(config: Partial<Config>): Promise<void> {
   if (merged.apiUrl) vars.UNCORDED_API_URL = merged.apiUrl;
 
   // Ensure directory exists with restricted permissions
-  const { mkdir } = await import("fs/promises");
+  const { mkdir, chmod } = await import("fs/promises");
   await mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  await chmod(CONFIG_DIR, 0o700);
 
   // Write file with restricted permissions
   await Bun.write(CONFIG_FILE, serializeEnv(vars), { mode: 0o600 });

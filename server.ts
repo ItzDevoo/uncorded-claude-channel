@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -45,6 +46,10 @@ async function apiRequest(
   path: string,
   body?: unknown,
 ): Promise<{ ok: boolean; status: number; data: unknown }> {
+  if (!botToken) {
+    return { ok: false, status: 0, data: "Bot token not configured" };
+  }
+
   const url = `${apiUrl}${path}`;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${botToken}`,
@@ -53,20 +58,25 @@ async function apiRequest(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  let data: unknown;
   try {
-    data = await res.json();
-  } catch {
-    data = null;
-  }
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
 
-  return { ok: res.ok, status: res.status, data };
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    console.error("[uncorded] API request failed:", err);
+    return { ok: false, status: 0, data: `Network error: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 async function sendMessage(channelId: string, content: string): Promise<{ ok: boolean; data: unknown }> {
@@ -164,6 +174,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       const chatId = args?.chat_id as string;
       const text = args?.text as string;
 
+      if (!chatId || typeof chatId !== "string") {
+        return { content: [{ type: "text", text: "Error: chat_id is required" }], isError: true };
+      }
       if (!text || text.length === 0) {
         return { content: [{ type: "text", text: "Error: message text cannot be empty" }] };
       }
@@ -186,6 +199,13 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "fetch_messages": {
       const chatId = args?.chat_id as string;
       const limit = (args?.limit as number) || 50;
+
+      if (!chatId || typeof chatId !== "string") {
+        return { content: [{ type: "text", text: "Error: chat_id is required" }], isError: true };
+      }
+      if (limit < 1 || limit > 100) {
+        return { content: [{ type: "text", text: "Error: limit must be between 1 and 100" }], isError: true };
+      }
 
       const result = await fetchMessages(chatId, limit);
       if (!result.ok) {
@@ -217,6 +237,12 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       const messageId = args?.message_id as string;
       const text = args?.text as string;
 
+      if (!chatId || typeof chatId !== "string") {
+        return { content: [{ type: "text", text: "Error: chat_id is required" }], isError: true };
+      }
+      if (!messageId || typeof messageId !== "string") {
+        return { content: [{ type: "text", text: "Error: message_id is required" }], isError: true };
+      }
       if (!text || text.length === 0) {
         return { content: [{ type: "text", text: "Error: message text cannot be empty" }] };
       }
@@ -265,8 +291,6 @@ function setupPermissionRelay(): void {
         return;
       }
 
-      pendingPermissions.set(params.id, ownerDmChannelId);
-
       const promptText = [
         `**Permission Request** (id: \`${params.id}\`)`,
         params.tool_name ? `Tool: \`${params.tool_name}\`` : null,
@@ -278,17 +302,28 @@ function setupPermissionRelay(): void {
         .filter(Boolean)
         .join("\n");
 
-      await sendMessage(ownerDmChannelId, promptText);
+      try {
+        const result = await sendMessage(ownerDmChannelId, promptText);
+        if (!result.ok) {
+          console.error("[uncorded] Failed to send permission relay message:", result.data);
+          return;
+        }
+        pendingPermissions.set(params.id, ownerDmChannelId);
+      } catch (err) {
+        console.error("[uncorded] Error sending permission relay message:", err);
+      }
     },
   );
 }
 
-function handlePermissionResponse(content: string): boolean {
+function handlePermissionResponse(content: string, channelId: string): boolean {
   const match = content.match(/^(yes|no)\s+(\S+)/i);
   if (!match) return false;
 
   const [, verdict, id] = match;
-  if (!pendingPermissions.has(id)) return false;
+  const expectedChannelId = pendingPermissions.get(id);
+  if (!expectedChannelId) return false;
+  if (expectedChannelId !== channelId) return false;
 
   pendingPermissions.delete(id);
 
@@ -347,7 +382,11 @@ async function main(): Promise<void> {
 
   const client = new UnCordedClient({
     token: config.botToken,
-    gatewayUrl: config.apiUrl.replace("https://", "wss://").replace("http://", "ws://") + "/gateway",
+    gatewayUrl: (() => {
+      const url = new URL("/gateway", config.apiUrl);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      return url.toString();
+    })(),
   });
 
   client.onReady = (data: ReadyData) => {
@@ -355,11 +394,7 @@ async function main(): Promise<void> {
     console.error(`[uncorded] Bot user: ${data.user.username} (${data.user.id})`);
 
     if (config.ownerId) {
-      const dmChannels = data.dmChannels as Array<{
-        id: string;
-        participants: Array<{ id: string }>;
-      }>;
-      const ownerDm = dmChannels.find((ch) =>
+      const ownerDm = data.dmChannels.find((ch) =>
         ch.participants?.some((p) => p.id === config.ownerId),
       );
       if (ownerDm) {
@@ -375,7 +410,7 @@ async function main(): Promise<void> {
     if (
       message.author.id === config.ownerId &&
       !message.author.isBot &&
-      handlePermissionResponse(message.content)
+      handlePermissionResponse(message.content, message.channelId)
     ) {
       return;
     }

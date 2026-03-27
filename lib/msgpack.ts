@@ -19,6 +19,11 @@ export interface HelloData {
   heartbeatInterval: number;
 }
 
+export interface DMChannel {
+  id: string;
+  participants: Array<{ id: string }>;
+}
+
 export interface ReadyData {
   user: {
     id: string;
@@ -30,7 +35,7 @@ export interface ReadyData {
     isBot: boolean;
   };
   servers: unknown[];
-  dmChannels: unknown[];
+  dmChannels: DMChannel[];
   friends: unknown[];
 }
 

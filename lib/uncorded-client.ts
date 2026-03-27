@@ -37,6 +37,7 @@ export class UnCordedClient {
 
   connect(): void {
     if (this.isDestroyed) return;
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) return;
 
     try {
       this.ws = new WebSocket(this.gatewayUrl);
@@ -52,7 +53,7 @@ export class UnCordedClient {
           const frame = decode(data);
           this.handleFrame(frame);
         } catch (err) {
-          console.error("[uncorded] Failed to decode frame:", err);
+          console.error("[uncorded] Failed to process frame:", err);
         }
       });
 
