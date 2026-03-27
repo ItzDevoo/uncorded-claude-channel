@@ -15,15 +15,16 @@ import type { MessageData, ReadyData } from "./lib/msgpack.js";
 // --- Custom notification types for the channel protocol ---
 
 interface ChannelMessageNotification extends Notification {
-  method: "notifications/message/create";
+  method: "notifications/claude/channel";
   params: {
-    source: string;
-    chat_id: string;
-    user: string;
-    user_id: string;
-    message_id: string;
-    ts: string;
     content: string;
+    meta: {
+      chat_id: string;
+      user: string;
+      user_id: string;
+      message_id: string;
+      ts: string;
+    };
   };
 }
 
@@ -344,15 +345,16 @@ function deliverMessage(message: MessageData): void {
   const user = message.author.displayName || message.author.username;
 
   mcp.notification({
-    method: "notifications/message/create",
+    method: "notifications/claude/channel",
     params: {
-      source: "uncorded",
-      chat_id: message.channelId,
-      user,
-      user_id: message.author.id,
-      message_id: message.id,
-      ts: message.createdAt,
       content: message.content,
+      meta: {
+        chat_id: message.channelId,
+        user,
+        user_id: message.author.id,
+        message_id: message.id,
+        ts: message.createdAt,
+      },
     },
   } satisfies ChannelMessageNotification);
 }
