@@ -1,6 +1,7 @@
 {
   "name": "uncorded",
   "description": "UnCorded channel for Claude Code \u2014 chat with your Claude session from UnCorded DMs and server channels.",
-  "version": "0.0.1",
-  "keywords": ["uncorded", "messaging", "channel", "mcp", "chat"]
+  "version": "0.0.2",
+  "keywords": ["uncorded", "messaging", "channel", "mcp"],
+  "commands": "./skills/"
 }
