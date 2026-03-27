@@ -6,6 +6,7 @@ import {
   ListToolsRequestSchema,
   type Notification,
 } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import { UnCordedClient } from "./lib/uncorded-client.js";
 import { loadConfig } from "./lib/config.js";
 import { gate, setOwnerId, setBotUserId } from "./lib/access.js";
@@ -274,46 +275,45 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
 const pendingPermissions = new Map<string, string>();
 let ownerDmChannelId: string | null = null;
 
-function setupPermissionRelay(): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mcp.setNotificationHandler(
-    { method: "notifications/claude/channel/permission_request" } as any,
-    async (notification: unknown) => {
-      const params = (notification as { params: {
-        id: string;
-        description: string;
-        tool_name?: string;
-        arguments?: unknown;
-      } }).params;
+const PermissionRequestSchema = z.object({
+  method: z.literal("notifications/claude/channel/permission_request"),
+  params: z.object({
+    id: z.string(),
+    description: z.string(),
+    tool_name: z.string().optional(),
+    arguments: z.unknown().optional(),
+  }),
+});
 
-      if (!ownerDmChannelId) {
-        console.error("[uncorded] No owner DM channel available for permission relay");
+function setupPermissionRelay(): void {
+  mcp.setNotificationHandler(PermissionRequestSchema, async ({ params }) => {
+    if (!ownerDmChannelId) {
+      console.error("[uncorded] No owner DM channel available for permission relay");
+      return;
+    }
+
+    const promptText = [
+      `**Permission Request** (id: \`${params.id}\`)`,
+      params.tool_name ? `Tool: \`${params.tool_name}\`` : null,
+      `Description: ${params.description}`,
+      params.arguments ? `Arguments: \`${JSON.stringify(params.arguments)}\`` : null,
+      "",
+      `Reply \`yes ${params.id}\` to approve or \`no ${params.id}\` to deny.`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      const result = await sendMessage(ownerDmChannelId, promptText);
+      if (!result.ok) {
+        console.error("[uncorded] Failed to send permission relay message:", result.data);
         return;
       }
-
-      const promptText = [
-        `**Permission Request** (id: \`${params.id}\`)`,
-        params.tool_name ? `Tool: \`${params.tool_name}\`` : null,
-        `Description: ${params.description}`,
-        params.arguments ? `Arguments: \`${JSON.stringify(params.arguments)}\`` : null,
-        "",
-        `Reply \`yes ${params.id}\` to approve or \`no ${params.id}\` to deny.`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      try {
-        const result = await sendMessage(ownerDmChannelId, promptText);
-        if (!result.ok) {
-          console.error("[uncorded] Failed to send permission relay message:", result.data);
-          return;
-        }
-        pendingPermissions.set(params.id, ownerDmChannelId);
-      } catch (err) {
-        console.error("[uncorded] Error sending permission relay message:", err);
-      }
-    },
-  );
+      pendingPermissions.set(params.id, ownerDmChannelId);
+    } catch (err) {
+      console.error("[uncorded] Error sending permission relay message:", err);
+    }
+  });
 }
 
 function handlePermissionResponse(content: string, channelId: string): boolean {
