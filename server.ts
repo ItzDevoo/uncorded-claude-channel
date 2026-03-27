@@ -392,6 +392,7 @@ async function main(): Promise<void> {
   client.onReady = (data: ReadyData) => {
     setBotUserId(data.user.id);
     console.error(`[uncorded] Bot user: ${data.user.username} (${data.user.id})`);
+    console.error(`[uncorded] READY payload: ${data.dmChannels.length} DM channels, ownerId=${config.ownerId ?? "(none)"}`);
 
     if (config.ownerId) {
       const ownerDm = data.dmChannels.find((ch) =>
@@ -399,24 +400,41 @@ async function main(): Promise<void> {
       );
       if (ownerDm) {
         ownerDmChannelId = ownerDm.id;
-        console.error(`[uncorded] Owner DM channel: ${ownerDmChannelId}`);
+        console.error(`[uncorded] Owner DM channel (from READY): ${ownerDmChannelId}`);
       } else {
-        console.error("[uncorded] Warning: Could not find DM channel with owner");
+        console.error(
+          "[uncorded] Owner DM channel not in READY payload (paginated?) — will learn from first owner message",
+        );
       }
     }
   };
 
   client.onMessage = (message: MessageData) => {
+    console.error(
+      `[uncorded] MESSAGE_CREATE author=${message.author.username}(${message.author.id}) ` +
+      `isBot=${message.author.isBot} channel=${message.channelId} ` +
+      `content=${JSON.stringify(message.content.slice(0, 120))}`,
+    );
+
+    // Dynamically learn the owner's DM channel if we didn't get it from READY
+    if (message.author.id === config.ownerId && !ownerDmChannelId) {
+      ownerDmChannelId = message.channelId;
+      console.error(`[uncorded] Owner DM channel (learned from message): ${ownerDmChannelId}`);
+    }
+
+    // Check if this is a permission response from the owner
     if (
       message.author.id === config.ownerId &&
       !message.author.isBot &&
       handlePermissionResponse(message.content, message.channelId)
     ) {
+      console.error(`[uncorded] Message consumed as permission response`);
       return;
     }
 
     if (!gate(message)) return;
 
+    console.error(`[uncorded] Delivering message ${message.id} to Claude`);
     deliverMessage(message);
   };
 

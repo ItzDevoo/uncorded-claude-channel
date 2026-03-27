@@ -1,6 +1,10 @@
 import WebSocket from "ws";
 import { Op, encode, decode, type HelloData, type ReadyData, type MessageData, type Frame } from "./msgpack.js";
 
+const OpName: Record<number, string> = Object.fromEntries(
+  Object.entries(Op).map(([k, v]) => [v, k]),
+);
+
 export type MessageHandler = (message: MessageData) => void;
 export type ReadyHandler = (data: ReadyData) => void;
 export type ErrorHandler = (error: Error) => void;
@@ -75,6 +79,8 @@ export class UnCordedClient {
   }
 
   private handleFrame(frame: Frame): void {
+    console.error(`[uncorded] << opcode ${frame.op} (${OpName[frame.op] ?? "UNKNOWN"})`);
+
     switch (frame.op) {
       case Op.HELLO: {
         const data = frame.d as HelloData;

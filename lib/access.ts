@@ -30,11 +30,19 @@ export function isSelf(userId: string): boolean {
  * Only owner messages pass; bot's own messages and all others are dropped.
  */
 export function gate(message: { author: { id: string; isBot: boolean } }): boolean {
-  // Ignore messages from any bot (including self)
-  if (message.author.isBot) return false;
+  // Ignore messages from the bot itself
+  if (isSelf(message.author.id)) {
+    console.error(`[uncorded] gate: DROPPED (self) author=${message.author.id}`);
+    return false;
+  }
 
-  // Only deliver messages from the owner
-  if (!isOwner(message.author.id)) return false;
+  // Only deliver messages from the owner — isBot doesn't matter,
+  // the owner check is sufficient and isBot could be incorrect
+  if (!isOwner(message.author.id)) {
+    console.error(`[uncorded] gate: DROPPED (not owner) author=${message.author.id} ownerId=${ownerId}`);
+    return false;
+  }
 
+  console.error(`[uncorded] gate: PASSED author=${message.author.id}`);
   return true;
 }
